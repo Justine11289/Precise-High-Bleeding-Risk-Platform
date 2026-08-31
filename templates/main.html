@@ -1,0 +1,405 @@
+﻿{% extends "layout.html" %}
+
+{% block title %}PRECISE-HBR Bleeding Risk Calculator{% endblock %}
+
+{% block content %}
+<div class="container mt-4" id="app-container" data-patient-id="{{ patient_id }}">
+    <!-- Information Banner -->
+    <div class="alert alert-info mb-4" role="alert" aria-live="polite">
+        <div class="d-flex align-items-center">
+            <i class="fas fa-info-circle me-2" aria-hidden="true"></i>
+            <div class="flex-grow-1">
+                <strong>Disclaimer</strong> - This risk scoring tool is intended for use by clinicians, in conjunction
+                with individual patient assessment.
+                We assume no responsibility for how you use or interpret the PRECISE-HBR Score or any other information
+                provided on this website.
+            </div>
+            <div>
+                <a href="/landing" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary me-2"
+                    aria-label="Learn more about PRECISE-HBR (opens in new window)">
+                    <i class="fas fa-external-link-alt" aria-hidden="true"></i> Learn More
+                </a>
+                <a href="/docs" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary"
+                    aria-label="View documentation (opens in new window)">
+                    <i class="fas fa-book" aria-hidden="true"></i> Documentation
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- R-04 Risk Mitigation: Enhanced Security Advisory Banner -->
+    <div class="alert alert-warning mb-4" role="alert" aria-live="polite">
+        <div class="d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center">
+                <i class="fas fa-shield-alt me-2" aria-hidden="true"></i>
+                <div>
+                    <strong>Security Notice:</strong> You are viewing Protected Health Information (PHI). Please ensure
+                    you are on a secure network and be mindful of your surroundings to protect patient privacy.
+                </div>
+            </div>
+            <div class="text-end">
+                <small class="text-muted">Session timeout: <span id="session-timer" aria-live="polite"
+                        aria-atomic="true">5:00</span></small>
+            </div>
+        </div>
+    </div>
+
+    <div id="loading-container" class="text-center" role="status" aria-live="assertive" aria-atomic="true">
+        <div class="spinner-border text-primary" role="status" aria-label="Loading patient data">
+            <span class="visually-hidden">Loading patient data, please wait...</span>
+        </div>
+        <p class="mt-2" id="loading-message">Fetching patient data from FHIR server and calculating risk score, please
+            wait...</p>
+    </div>
+
+    <div id="error-container" class="alert alert-danger d-none" role="alert" aria-live="assertive" aria-atomic="true">
+        <h4><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Error Calculating Risk</h4>
+        <p id="error-message"></p>
+        <button class="btn btn-primary reload-btn" aria-label="Retry calculation">
+            <i class="fas fa-redo" aria-hidden="true"></i> Retry
+        </button>
+    </div>
+
+    <div id="results-container" class="d-none">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h3">Bleeding Risk Assessment Results</h2>
+            <button class="btn btn-sm btn-outline-secondary reload-btn">
+                <i class="fas fa-sync-alt"></i> Refresh Data
+            </button>
+        </div>
+
+        <div class="row">
+            <!-- Patient Info -->
+            <div class="col-md-4">
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0"><i class="fas fa-user-circle"></i> Patient Information</h5>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Patient ID:</strong>
+                            <span id="patient-id" class="badge bg-primary text-white">
+                                {% if patient_id %}{{ patient_id }}{% else %}Loading...{% endif %}
+                            </span>
+                        </p>
+                        <p><strong>Name:</strong> <span id="patient-name">Loading...</span></p>
+                        <p><strong>Age:</strong> <span id="patient-age">Loading...</span></p>
+                        <p><strong>Gender:</strong> <span id="patient-gender">Loading...</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Total Score -->
+            <div class="col-md-8">
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-calculator"></i> Total Risk Score</h5>
+                        <!-- Copy Result Button -->
+                        <button id="copyResultBtn" class="btn btn-sm btn-outline-primary d-none"
+                            title="Copy risk assessment result to clipboard">
+                            <i class="fas fa-copy"></i> Copy Result
+                        </button>
+                    </div>
+                    <div class="card-body text-center">
+                        <h1 id="total-score" class="display-3 fw-bold"></h1>
+                        <p id="risk-level" class="h4"></p>
+                        <p id="recommendation" class="lead"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- HBR Clinical Recommendations Section (Dynamically shown when HBR detected) -->
+        <div class="row d-none" id="hbr-recommendations-section">
+            <div class="col-12">
+                <div class="alert alert-warning border-warning alert-hbr">
+                    <h4 class="mb-3">
+                        <i class="fas fa-exclamation-triangle text-warning"></i>
+                        <strong>High Bleeding Risk (HBR) Detected</strong>
+                    </h4>
+                    <p class="mb-3">
+                        Based on the PRECISE-HBR score (≥23), this patient has been identified as having <strong>high
+                            bleeding risk</strong>.
+                        Consider the following antiplatelet strategies to reduce bleeding risk:
+                    </p>
+
+                    <div class="card mb-3">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0">?? Recommended Antiplatelet Strategies (Post-ACS)</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6 class="text-primary"><strong>Strategy 1: Abbreviated DAPT</strong></h6>
+                                    <ul class="mb-3">
+                                        <li><strong>HBR patients only:</strong>
+                                            <ul>
+                                                <li>1 month DAPT (dual antiplatelet therapy)</li>
+                                                <li>Then switch to P2Y₁₂ inhibitor or aspirin monotherapy</li>
+                                            </ul>
+                                        </li>
+                                        <li><strong>HBR and non-HBR patients:</strong>
+                                            <ul>
+                                                <li>3-6 months DAPT</li>
+                                                <li>Then switch to P2Y₁₂ inhibitor or aspirin monotherapy</li>
+                                            </ul>
+                                        </li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6 class="text-success"><strong>Strategy 2: DAPT De-escalation</strong></h6>
+                                    <ul class="mb-3">
+                                        <li><strong>Initial therapy:</strong>
+                                            <ul>
+                                                <li>Aspirin + Prasugrel, OR</li>
+                                                <li>Aspirin + Ticagrelor</li>
+                                            </ul>
+                                        </li>
+                                        <li><strong>At 3 months:</strong>
+                                            <ul>
+                                                <li>De-escalate: Change from potent P2Y₁₂ inhibitor to clopidogrel</li>
+                                                <li>Continue: Aspirin + Clopidogrel</li>
+                                            </ul>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-info mb-3">
+                                <strong><i class="fas fa-info-circle"></i> Clinical Guideline:</strong>
+                                <p class="mb-2">
+                                    These recommendations are based on ESC (European Society of Cardiology) guidelines
+                                    for
+                                    managing antiplatelet therapy in patients with high bleeding risk after acute
+                                    coronary syndrome (ACS).
+                                </p>
+                            </div>
+
+                            <div class="text-center mt-3">
+                                <img src="{{ url_for('static', filename='images/HBR_guideline.jpg') }}"
+                                    alt="HBR Antiplatelet Strategy Guideline"
+                                    class="img-fluid rounded shadow guideline-img hbr-guideline-img">
+                                <p class="text-muted mt-2">
+                                    <small>Click image to view full size | Source: ESC Guidelines</small>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-danger mb-0">
+                        <strong><i class="fas fa-shield-exclamation"></i> Important Note:</strong>
+                        <p class="mb-0">
+                            These are general recommendations based on clinical guidelines. <strong>Always consult with
+                                the treating physician</strong>
+                            before making any changes to antiplatelet therapy. Individual patient factors, concomitant
+                            medications,
+                            and clinical context must be considered.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Missing Data Warning -->
+        <div id="missing-data-warning" class="alert alert-warning mb-4 d-none" role="alert" aria-live="polite">
+            <div class="d-flex align-items-start">
+                <i class="fas fa-exclamation-triangle me-3 mt-1 font-size-1-5rem" aria-hidden="true"></i>
+                <div class="flex-grow-1">
+                    <h5 class="alert-heading mb-2">
+                        <strong>?? Missing Data Detected - Risk May Be Underestimated</strong>
+                    </h5>
+                    <p class="mb-2">
+                        The following important risk factors have missing data. The calculated bleeding risk score may
+                        be <strong>lower than the actual risk</strong>.
+                    </p>
+                    <ul id="missing-data-list" class="mb-2 missing-list">
+                        <!-- Missing data items will be inserted here by JavaScript -->
+                    </ul>
+                    <p class="mb-0 text-muted">
+                        <i class="fas fa-info-circle"></i>
+                        <small>Please manually enter the missing values in the table below if available, or interpret
+                            results with caution.</small>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Quality Warning (Truncated Values) -->
+        <div id="truncation-warning" class="alert alert-danger mb-4 d-none" role="alert" aria-live="assertive">
+            <div class="d-flex align-items-start">
+                <i class="fas fa-radiation me-3 mt-1 font-size-1-5rem" aria-hidden="true"></i>
+                <div class="flex-grow-1">
+                    <h5 class="alert-heading mb-2">
+                        <strong>Data Quality Alert - Abnormal Value(s) Detected</strong>
+                    </h5>
+                    <p class="mb-2">
+                        One or more lab values fell <strong>outside the clinically expected range</strong>.
+                        The score was calculated using capped values. This may indicate a
+                        <strong>unit conversion error</strong> or <strong>data entry issue</strong> in the EHR.
+                    </p>
+                    <ul id="truncation-warning-list" class="mb-2">
+                        <!-- Truncation warning items inserted by JavaScript -->
+                    </ul>
+                    <p class="mb-0">
+                        <i class="fas fa-user-md"></i>
+                        <strong>Please verify these values before making clinical decisions.</strong>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Quality Warning (Unrecognized / Missing Units) -->
+        <div id="unit-warning" class="alert alert-danger mb-4 d-none" role="alert" aria-live="assertive">
+            <div class="d-flex align-items-start">
+                <i class="fas fa-exclamation-triangle me-3 mt-1 font-size-1-5rem" aria-hidden="true"></i>
+                <div class="flex-grow-1">
+                    <h5 class="alert-heading mb-2">
+                        <strong>Data Quality Alert - Unrecognized Unit(s)</strong>
+                    </h5>
+                    <p class="mb-2">
+                        One or more lab values were received with an <strong>unrecognized or missing unit</strong>.
+                        These values have been <strong>excluded from the score calculation</strong> rather than
+                        guessing the unit. The affected parameters are shown as "Not available" above.
+                    </p>
+                    <ul id="unit-warning-list" class="mb-2">
+                        <!-- Unit warning items inserted by JavaScript -->
+                    </ul>
+                    <p class="mb-0">
+                        <i class="fas fa-user-md"></i>
+                        <strong>Please verify the values and units in the EHR. Use manual override if appropriate.</strong>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Score Breakdown -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-list-ul" aria-hidden="true"></i> Score Components</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-hover align-middle font-xxl" role="table" aria-label="Risk score components">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col" class="table-th-35">Risk Factor</th>
+                            <th scope="col" class="table-th-40">Value (Editable)</th>
+                            <th scope="col" class="table-th-10">Score</th>
+                            <th scope="col" class="table-th-15">Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="score-components">
+                        <!-- Interactive components will be inserted here by JavaScript -->
+                    </tbody>
+                </table>
+                <div class="form-text mt-2" role="note" aria-label="Editing instructions">
+                    <i class="fas fa-info-circle" aria-hidden="true"></i>
+                    You can manually edit the values in the table above to perform a "what-if" analysis. The total score
+                    will update automatically.
+                </div>
+            </div>
+        </div>
+
+        <!-- User Feedback Section -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light">
+                <h5 class="mb-0">
+                    <i class="fas fa-comment-dots mr-2"></i>
+                    Result Feedback
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted mb-3">Do you think this bleeding risk calculation result is accurate? Please share
+                    your feedback:</p>
+                <div id="feedbackSection">
+                    <div class="d-flex justify-content-center mb-3">
+                        <button type="button" id="thumbsUpBtn" class="btn btn-outline-success btn-lg mx-2"
+                            title="Result is accurate">
+                            <i class="fas fa-thumbs-up mr-2"></i>
+                            Accurate
+                        </button>
+                        <button type="button" id="thumbsDownBtn" class="btn btn-outline-danger btn-lg mx-2"
+                            title="Result is not accurate">
+                            <i class="fas fa-thumbs-down mr-2"></i>
+                            Not Accurate
+                        </button>
+                    </div>
+
+                    <!-- Optional Comment Section (Initially Hidden) -->
+                    <div id="commentSection" class="mt-3 d-none">
+                        <div class="form-group">
+                            <label for="feedbackComment">
+                                <i class="fas fa-comment mr-1"></i>
+                                Additional Comments (Optional):
+                            </label>
+                            <textarea id="feedbackComment" class="form-control" rows="3"
+                                placeholder="Please share your specific feedback or suggestions about the calculation result..."></textarea>
+                        </div>
+                        <div class="d-flex justify-content-end">
+                            <button type="button" id="cancelFeedbackBtn" class="btn btn-secondary mr-2">
+                                Cancel
+                            </button>
+                            <button type="button" id="submitCommentBtn" class="btn btn-primary">
+                                <i class="fas fa-paper-plane mr-1"></i>
+                                Submit Feedback
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Feedback Success Message -->
+                    <div id="feedbackSuccess" class="alert alert-success mt-3 d-none">
+                        <i class="fas fa-check-circle mr-2"></i>
+                        <span id="feedbackMessage">Thank you for your feedback!</span>
+                    </div>
+
+                    <!-- Feedback Error Message -->
+                    <div id="feedbackError" class="alert alert-danger mt-3 d-none">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>
+                        An error occurred while submitting feedback, please try again later.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ARC-HBR Guideline Image -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light">
+                <h5 class="mb-0">
+                    <i class="fas fa-image mr-2"></i>
+                    ARC-HBR Guideline Reference
+                </h5>
+            </div>
+            <div class="card-body text-center">
+                <img src="{{ url_for('static', filename='images/ARCHBR.png') }}" alt="ARC-HBR Guideline"
+                    class="img-fluid arc-guideline-img">
+            </div>
+        </div>
+
+        <!-- Citation Information -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light">
+                <h5 class="mb-0">
+                    <i class="fas fa-book mr-2"></i>
+                    Citation
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="citation-box">
+                    <p class="mb-1"><strong>Article Type:</strong> Journal Article</p>
+                    <p class="mb-1"><strong>Title:</strong> Derivation and Validation of the PRECISE-HBR Score to
+                        Predict Bleeding After Percutaneous Coronary Intervention</p>
+                    <p class="mb-1"><strong>Authors:</strong> Gragnano, Felice; van Klaveren, David; Heg, Dik; Raber,
+                        Lorenz; Krucoff, Mitchell W.; et al.</p>
+                    <p class="mb-1"><strong>Journal:</strong> Circulation</p>
+                    <p class="mb-1"><strong>Date:</strong> 2025/02/11</p>
+                    <p class="mb-1"><strong>Publisher:</strong> American Heart Association</p>
+                    <p class="mb-1"><strong>DOI:</strong> <a href="https://doi.org/10.1161/CIRCULATIONAHA.124.072009"
+                            target="_blank" rel="noopener noreferrer">10.1161/CIRCULATIONAHA.124.072009</a></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% endblock %}
